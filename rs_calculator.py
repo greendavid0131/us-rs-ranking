@@ -88,7 +88,7 @@ def save_price_cache():
 # ════════════════════════════════════════════════════════════════
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; RS-Ranking/1.0)"}
 
-# 萬一維基百科抓取失敗時的最小備援清單（大型權值股）
+# 萬一所有線上來源都失敗時的最小備援清單（大型權值股）
 FALLBACK = [
     ("AAPL","Apple","資訊科技"),("MSFT","Microsoft","資訊科技"),
     ("NVDA","NVIDIA","資訊科技"),("AVGO","Broadcom","資訊科技"),
@@ -105,13 +105,49 @@ FALLBACK = [
     ("AMT","American Tower","房地產"),("LIN","Linde","原物料"),
 ]
 
+# Nasdaq-100 中常見、但不在 S&P 500 的成分股（多為外國企業）
+NASDAQ100_EXTRA = [
+    ("ASML","ASML Holding","資訊科技"), ("AZN","AstraZeneca","醫療保健"),
+    ("ARM","Arm Holdings","資訊科技"),  ("PDD","PDD Holdings","非必需消費"),
+    ("MELI","MercadoLibre","非必需消費"),("GFS","GlobalFoundries","資訊科技"),
+    ("TEAM","Atlassian","資訊科技"),    ("MDB","MongoDB","資訊科技"),
+]
+
+# S&P 500 成分股 CSV（穩定、不易被擋；raw.githubusercontent 在 Actions 上可靠）
+SP500_CSV_URLS = [
+    "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv",
+    "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv",
+]
+
+def fetch_sp500_csv() -> dict:
+    """主來源：從 GitHub 上的 S&P 500 CSV 取清單。回傳 {ticker:(name,sector_zh)}"""
+    import io, csv
+    for url in SP500_CSV_URLS:
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=30)
+            resp.raise_for_status()
+            reader = csv.DictReader(io.StringIO(resp.text))
+            out = {}
+            for row in reader:
+                sym = (row.get("Symbol") or "").strip().upper()
+                name = (row.get("Security") or row.get("Name") or sym).strip()
+                sec = (row.get("GICS Sector") or row.get("Sector") or "").strip()
+                if sym:
+                    out[sym] = (name, GICS_MAP.get(sec, "其他"))
+            if len(out) >= 100:
+                print(f"  ✓ S&P 500（CSV）：{len(out)} 檔")
+                return out
+        except Exception as e:
+            print(f"  ⚠ S&P 500 CSV 失敗：{e}")
+    return {}
+
 def _read_wiki_tables(url: str):
     resp = requests.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
     return pd.read_html(resp.text)
 
 def fetch_sp500() -> dict:
-    """回傳 {ticker: (name, sector_zh)}"""
+    """備援來源：維基百科 S&P 500。回傳 {ticker:(name,sector_zh)}"""
     out = {}
     try:
         url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
@@ -124,13 +160,13 @@ def fetch_sp500() -> dict:
             if not sym:
                 continue
             out[sym] = (name, GICS_MAP.get(sec, "其他"))
-        print(f"  ✓ S&P 500：{len(out)} 檔")
+        print(f"  ✓ S&P 500（維基）：{len(out)} 檔")
     except Exception as e:
-        print(f"  ⚠ S&P 500 抓取失敗：{e}")
+        print(f"  ⚠ S&P 500 維基抓取失敗：{e}")
     return out
 
 def fetch_nasdaq100() -> dict:
-    """回傳 {ticker: (name, sector_zh)}"""
+    """Nasdaq-100：維基百科。回傳 {ticker:(name,sector_zh)}"""
     out = {}
     try:
         url = "https://en.wikipedia.org/wiki/Nasdaq-100"
@@ -154,28 +190,39 @@ def fetch_nasdaq100() -> dict:
                 if not sym or sym == "NAN":
                     continue
                 out[sym] = (name, GICS_MAP.get(sec, "其他"))
-        print(f"  ✓ Nasdaq-100：{len(out)} 檔")
+        print(f"  ✓ Nasdaq-100（維基）：{len(out)} 檔")
     except Exception as e:
-        print(f"  ⚠ Nasdaq-100 抓取失敗：{e}")
+        print(f"  ⚠ Nasdaq-100 維基抓取失敗：{e}")
     return out
 
 def fetch_universe() -> list[dict]:
-    sp = fetch_sp500()
-    nq = fetch_nasdaq100()
-    merged = dict(sp)
-    for sym, val in nq.items():
+    # 1) S&P 500：CSV 主來源，失敗才退維基百科
+    merged = fetch_sp500_csv()
+    if len(merged) < 100:
+        wiki = fetch_sp500()
+        for sym, val in wiki.items():
+            merged.setdefault(sym, val)
+
+    # 2) Nasdaq-100：維基百科（有就補，沒有也沒關係）
+    for sym, val in fetch_nasdaq100().items():
         if sym not in merged:
             merged[sym] = val
         elif merged[sym][1] == "其他" and val[1] != "其他":
-            merged[sym] = val   # 補上類股
+            merged[sym] = val
 
-    if not merged:
-        print("  ⚠ 兩來源皆失敗，使用備援清單")
-        merged = {t: (n, s) for t, n, s in FALLBACK}
+    # 3) 補上 Nasdaq-100 非 S&P 成分股
+    for t, n, s in NASDAQ100_EXTRA:
+        merged.setdefault(t, (n, s))
+
+    # 4) 最後保險：清單太小才用備援
+    if len(merged) < 50:
+        print("  ⚠ 線上來源皆失敗，使用備援清單")
+        for t, n, s in FALLBACK:
+            merged.setdefault(t, (n, s))
 
     stocks = []
     for sym, (name, sector) in merged.items():
-        # 維基百科用 . 表示特別股（BRK.B），yfinance 用 -（BRK-B）
+        # 維基百科/CSV 用 . 表示特別股（BRK.B），yfinance 用 -（BRK-B）
         yf_ticker = sym.replace(".", "-")
         stocks.append({"code": sym, "yf": yf_ticker, "name": name, "sector": sector})
     print(f"  ✓ 合併去重後共 {len(stocks)} 檔")
