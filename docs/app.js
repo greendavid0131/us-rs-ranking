@@ -497,7 +497,7 @@ function exportTV() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `rs${threshold}_watchlist_${today}.txt`;
+  a.download = `美股_rs${threshold}_watchlist_${today}.txt`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
