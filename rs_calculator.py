@@ -275,13 +275,27 @@ def download_close(ticker: str, period: str = "580d") -> pd.Series | None:
     return None
 
 def get_market_cap(ticker: str) -> float:
-    """用 yfinance fast_info 取市值（較輕量）。失敗回 0。"""
+    """取市值（美元）。用直接索引觸發 fast_info 的即時計算；失敗再以股數×股價備援。"""
     try:
         fi = yf.Ticker(ticker).fast_info
-        mc = fi.get("market_cap") if hasattr(fi, "get") else fi["market_cap"]
-        return float(mc) if mc else 0.0
     except Exception:
         return 0.0
+    # 1) 直接索引 market_cap（用 [] 才會即時計算，.get() 會回 None）
+    for key in ("market_cap", "marketCap"):
+        try:
+            v = fi[key]
+            if v:
+                return float(v)
+        except Exception:
+            pass
+    # 2) 備援：流通股數 × 最新股價
+    try:
+        sh, px = fi["shares"], fi["last_price"]
+        if sh and px:
+            return float(sh) * float(px)
+    except Exception:
+        pass
+    return 0.0
 
 
 # ════════════════════════════════════════════════════════════════
