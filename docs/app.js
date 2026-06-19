@@ -177,7 +177,7 @@ function rankDelta(curr, prev) {
 let sortCol = 'rs', sortDir = -1;
 let filterCap = 'all', filterSector = 'all', filterRS = 0, searchQuery = '';
 let page = 1;
-const PER_PAGE = 20;
+const PER_PAGE = 50;
 
 // ── INIT ─────────────────────────────────────────────────────
 async function init() {
