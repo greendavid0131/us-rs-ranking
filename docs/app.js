@@ -1,6 +1,7 @@
 // ── DATA ──────────────────────────────────────────────────────
 let stocks = [];
 let sectorFlowData = [];
+let subsectorFlowData = [];
 let rsHistory = {};
 let historyChart = null;
 
@@ -22,17 +23,20 @@ async function fetchData() {
     if (!dataRes.ok) throw new Error('HTTP ' + dataRes.status);
     const data = await dataRes.json();
     stocks = data.stocks || [];
-    sectorFlowData = (data.sectors || []).map(s => ({
+    const mapFlow = s => ({
       name: s.name, c1: s.c1 ?? 0, c5: s.c5 ?? 0, c1m: s.c1m ?? 0,
       flow: s.flow ?? (s.avg_rs * 1.1), flow5: s.flow5 ?? 0,
       weeks: s.weeks || [],
-    }));
+    });
+    sectorFlowData = (data.sectors || []).map(mapFlow);
+    subsectorFlowData = (data.subsectors || []).map(mapFlow);
     rsHistory = histRes.ok ? await histRes.json() : {};
     return { updatedAt: data.updated_at, live: true };
   } catch (e) {
     console.warn('rs_data.json 未找到，使用示意資料。請執行 rs_calculator.py', e.message);
     stocks = DEMO_STOCKS;
     sectorFlowData = DEMO_SECTORS;
+    subsectorFlowData = DEMO_SUBSECTORS;
     return { updatedAt: null, live: false };
   }
 }
@@ -103,6 +107,11 @@ const DEMO_SECTORS = [
   {name:"房地產",     c1:-0.68,c5:-1.84,c1m:-1.4, flow:38.2, flow5:14.8,  weeks:[45,44,43,44,43,44,43,42,41,40,39,38]},
   {name:"能源",       c1:-1.24,c5:-3.24,c1m:-4.8, flow:32.4, flow5:-48.4, weeks:[44,42,40,38,36,35,34,32,30,28,26,24]},
   {name:"公用事業",   c1:-0.84,c5:-2.14,c1m:-2.8, flow:36.8, flow5:-12.4, weeks:[46,45,44,43,42,42,41,40,39,38,37,36]},
+];
+
+const DEMO_SUBSECTORS = [
+  {name:"硬體", c1:1.42, c5:3.84, c1m:13.2, flow:512.4, flow5:1684.2, weeks:[]},
+  {name:"軟體", c1:0.86, c5:2.41, c1m:8.6,  flow:288.1, flow5:842.6,  weeks:[]},
 ];
 
 // ── HELPERS ──────────────────────────────────────────────────
@@ -219,7 +228,7 @@ async function init() {
   });
   document.getElementById('top-sector').textContent = topSector;
 
-  renderTable(); renderSEPA(); renderFund(); renderSectorFlow();
+  renderTable(); renderSEPA(); renderFund(); renderSectorFlow(); renderSubsectorFlow();
   bindEvents();
 }
 
@@ -366,13 +375,14 @@ function renderFund() {
 
 function renderSectorFlow() {
   const sorted = [...sectorFlowData].sort((a,b) => b.flow - a.flow);
-  const maxFlow = sorted[0].flow;
+  const maxFlow = Math.max(...sorted.map(s=>Math.abs(s.flow))) || 1;
+  const maxFlow5 = Math.max(...sorted.map(s=>Math.abs(s.flow5))) || 1;
   const tbody = document.getElementById('sector-tbody');
   tbody.innerHTML = sorted.map((sf, i) => {
     const barW = Math.abs(sf.flow / maxFlow * 100).toFixed(1);
-    const barColor = sf.c1 >= 0 ? 'var(--pos)' : 'var(--neg)';
+    const barColor = sf.flow >= 0 ? 'var(--pos)' : 'var(--neg)';
     const flow5Color = sf.flow5 >= 0 ? 'var(--pos)' : 'var(--neg)';
-    const flow5W = Math.abs(sf.flow5 / 300 * 100).toFixed(1);
+    const flow5W = Math.abs(sf.flow5 / maxFlow5 * 100).toFixed(1);
     const hasWeeks = sf.weeks && sf.weeks.length >= 2;
     return `<tr class="sector-row" data-idx="${i}">
       <td class="td-rank">${i+1}</td>
@@ -380,7 +390,7 @@ function renderSectorFlow() {
       <td>
         <div class="flow-bar-wrap">
           <div class="flow-bar-bg"><div class="flow-bar" style="width:${barW}%;background:${barColor}"></div></div>
-          <span class="flow-num" style="color:${barColor}">${sf.flow.toFixed(1)}</span>
+          <span class="flow-num" style="color:${barColor}">${sf.flow>0?'+':''}${sf.flow.toFixed(1)}</span>
         </div>
       </td>
       <td>
@@ -413,6 +423,33 @@ function renderSectorFlow() {
       if (el) el.classList.toggle('open');
     });
   });
+}
+
+function renderSubsectorFlow() {
+  const section = document.getElementById('subsector-section');
+  const tbody = document.getElementById('subsector-tbody');
+  if (!tbody) return;
+  const data = subsectorFlowData || [];
+  if (!data.length) { if (section) section.style.display = 'none'; return; }
+  if (section) section.style.display = '';
+  const sorted = [...data].sort((a,b) => b.flow - a.flow);
+  const maxFlow = Math.max(...sorted.map(s=>Math.abs(s.flow))) || 1;
+  const maxFlow5 = Math.max(...sorted.map(s=>Math.abs(s.flow5))) || 1;
+  tbody.innerHTML = sorted.map((sf, i) => {
+    const barW = Math.abs(sf.flow / maxFlow * 100).toFixed(1);
+    const barColor = sf.flow >= 0 ? 'var(--pos)' : 'var(--neg)';
+    const flow5Color = sf.flow5 >= 0 ? 'var(--pos)' : 'var(--neg)';
+    const flow5W = Math.abs(sf.flow5 / maxFlow5 * 100).toFixed(1);
+    return `<tr>
+      <td class="td-rank">${i+1}</td>
+      <td style="font-weight:500">${sf.name}</td>
+      <td><div class="flow-bar-wrap"><div class="flow-bar-bg"><div class="flow-bar" style="width:${barW}%;background:${barColor}"></div></div><span class="flow-num" style="color:${barColor}">${sf.flow>0?'+':''}${sf.flow.toFixed(1)}</span></div></td>
+      <td><div class="flow-bar-wrap"><div class="flow-bar-bg"><div class="flow-bar" style="width:${flow5W}%;background:${flow5Color}"></div></div><span class="flow-num" style="color:${flow5Color}">${sf.flow5>0?'+':''}${sf.flow5.toFixed(0)}</span></div></td>
+      <td class="td-num">${pct(sf.c1)}</td>
+      <td class="td-num">${pct(sf.c5)}</td>
+      <td class="td-num">${pct(sf.c1m)}</td>
+    </tr>`;
+  }).join('');
 }
 
 // ── EVENTS ────────────────────────────────────────────────────

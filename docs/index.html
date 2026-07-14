@@ -63,6 +63,7 @@
       <button class="pill" data-cap="大">大 ≥$100億</button>
       <button class="pill" data-cap="中">中 $20億–$100億</button>
       <button class="pill" data-cap="小">小 &lt;$20億</button>
+      <button class="pill" data-cap="未知">未知</button>
     </div>
   </div>
   <div class="ctrl-sep"></div>
@@ -181,6 +182,28 @@
           </tr>
         </thead>
         <tbody id="sector-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="sector-section" id="subsector-section" style="display:none">
+    <div class="section-title">
+      軟體 VS 硬體細分（資訊科技）
+      <span>資金流向 = Σ(日漲跌幅 × 成交量 × 收盤價)，單位：百萬美元</span>
+    </div>
+    <div class="table-wrap" style="padding:0">
+      <table class="flow-table">
+        <thead>
+          <tr>
+            <th style="width:36px">#</th>
+            <th>細分</th>
+            <th>資金流向</th>
+            <th>5日流向</th>
+            <th style="text-align:right">1日</th>
+            <th style="text-align:right">5日</th>
+            <th style="text-align:right">1月</th>
+          </tr>
+        </thead>
+        <tbody id="subsector-tbody"></tbody>
       </table>
     </div>
   </div>
